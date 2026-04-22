@@ -1,0 +1,200 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title></title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #ffffff;
+            min-height: 100vh;
+            padding: 30px 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        /* 上传按钮 默认隐藏 */
+        .upload-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background: #fff;
+            border: 2px solid #eee;
+            border-radius: 50%;
+            font-size: 24px;
+            color: #333;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+        }
+        .upload-btn:hover {
+            border-color: #ccc;
+        }
+        #file-input {
+            display: none;
+        }
+        /* 图片间距加宽 + 取消圆角 保持原图直角 */
+        .waterfall {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            align-items: center;
+        }
+        .waterfall img {
+            width: 100%;
+            max-width: 600px;
+            border-radius: 0;
+            object-fit: cover;
+            cursor: pointer;
+        }
+        /* 预览层 */
+        .preview {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(255,255,255,0.95);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 998;
+        }
+        .preview img {
+            max-width: 90vw;
+            max-height: 90vh;
+            object-fit: contain;
+            border-radius: 0;
+        }
+        .close-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background: transparent;
+            border: none;
+            font-size: 32px;
+            color: #333;
+            cursor: pointer;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+    <button class="upload-btn" onclick="document.getElementById('file-input').click()">+</button>
+    <input type="file" id="file-input" accept="image/*" multiple>
+
+    <div class="container">
+        <div class="waterfall" id="waterfall"></div>
+    </div>
+
+    <div class="preview" id="preview">
+        <button class="close-btn">×</button>
+        < img src="" alt="">
+    </div>
+
+    <script>
+        // 管理员密码
+        const ADMIN_PWD = "123686";
+        let isAdmin = false;
+        let clickCount = 0;
+        // 存储图片列表
+        let imgList = JSON.parse(localStorage.getItem('imgPermanentList')) || [];
+
+        const fileInput = document.getElementById('file-input');
+        const waterfall = document.getElementById('waterfall');
+        const preview = document.getElementById('preview');
+        const previewImg = preview.querySelector('img');
+        const closeBtn = document.querySelector('.close-btn');
+        const uploadBtn = document.querySelector('.upload-btn');
+
+        // 页面加载渲染所有图片
+        function renderAllImages(){
+            waterfall.innerHTML = "";
+            imgList.forEach((src, index) => {
+                createImgDom(src, index);
+            });
+        }
+
+        // 创建图片DOM
+        function createImgDom(src, index){
+            const img = document.createElement('img');
+            img.src = src;
+
+            // 管理员模式：点击删除图片
+            img.addEventListener('click', ()=>{
+                if(isAdmin){
+                    if(confirm("确定要删除这张照片吗？")){
+                        // 从数组和本地存储删除
+                        imgList.splice(index, 1);
+                        localStorage.setItem('imgPermanentList', JSON.stringify(imgList));
+                        renderAllImages();
+                    }
+                }else{
+                    // 普通用户：仅放大预览
+                    previewImg.src = img.src;
+                    preview.style.display = 'flex';
+                }
+            });
+            waterfall.appendChild(img);
+        }
+
+        // 初始化渲染
+        renderAllImages();
+
+        // 页面连续点击3次 弹出密码框
+        document.body.addEventListener('click', function(){
+            clickCount++;
+            setTimeout(()=>{ clickCount = 0; }, 800);
+            if(clickCount >= 3 && !isAdmin){
+                let pwd = prompt("请输入管理员密码");
+                if(pwd === ADMIN_PWD){
+                    isAdmin = true;
+                    uploadBtn.style.display = "flex";
+                    alert("验证成功！你可以上传和删除照片");
+                }else{
+                    alert("密码错误");
+                }
+            }
+        });
+
+        // 上传图片
+        fileInput.addEventListener('change', (e) => {
+            if(!isAdmin) return;
+            const files = e.target.files;
+            for(let i = 0; i < files.length; i++){
+                const file = files[i];
+                const reader = new FileReader();
+                reader.onload = function(event){
+                    const src = event.target.result;
+                    imgList.push(src);
+                    localStorage.setItem('imgPermanentList', JSON.stringify(imgList));
+                    renderAllImages();
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 关闭大图预览
+        closeBtn.addEventListener('click', ()=>{
+            preview.style.display = 'none';
+        });
+        preview.addEventListener('click', (e)=>{
+            if(e.target === preview){
+                preview.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
