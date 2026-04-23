@@ -1,0 +1,242 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>相册</title>
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #ffffff;  /* 纯白底 */
+}
+
+/* 瀑布流 + 四周留白 */
+.waterfall {
+  column-count: 3;
+  column-gap: 30px;
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+@media (max-width:900px){
+  .waterfall{column-count:2;}
+}
+@media (max-width:500px){
+  .waterfall{column-count:1;}
+}
+
+.img-item {
+  break-inside: avoid;
+  margin-bottom: 30px;
+  background: #fff;
+  padding: 15px; /* 图片四周留白 */
+}
+
+.img-item img {
+  width: 100%;
+  display: block;
+  border-radius: 0;
+  /* 高清保持 */
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* 管理界面默认隐藏 */
+.admin-wrap {
+  display: none;
+  padding: 20px;
+  background: #f7f7f7;
+  border-top: 1px solid #eee;
+}
+
+input {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  margin: 8px auto;
+  padding: 10px;
+  border: 1px solid #ddd;
+}
+
+button {
+  padding: 10px 20px;
+  background: #333;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  margin: 6px auto;
+  display: block;
+}
+</style>
+</head>
+<body>
+
+<!-- 瀑布流相册展示 -->
+<div class="waterfall" id="waterfall"></div>
+
+<!-- 管理面板：默认隐藏 -->
+<div class="admin-wrap" id="adminWrap">
+  <h3 style="text-align:center">管理员后台</h3>
+  <input type="password" id="pwdInp" placeholder="管理密码 123686">
+  <button onclick="loginAdmin()">登录管理</button>
+
+  <div id="cfgBox" style="display:none;">
+    <input id="uName" placeholder="GitHub用户名">
+    <input id="uRepo" placeholder="仓库名 photo-album">
+    <input id="uGist" placeholder="GistID">
+    <input id="uToken" placeholder="你的私密Token">
+    <button onclick="saveCfg()">保存配置</button>
+  </div>
+
+  <div id="uploadBox" style="display:none;">
+    <input type="file" id="fileInp" accept="image/*" multiple>
+    <button onclick="upImg()">上传图片</button>
+    <p style="text-align:center;font-size:13px;color:#666">最多存储80张</p >
+  </div>
+</div>
+
+<script>
+const PASS = "123686";
+const MAX_NUM = 80;
+
+let adminMode = false;
+let imgArr = [];
+let clickCount = 0;
+let cfg = JSON.parse(localStorage.getItem("myAlbumCfg")||"{}");
+
+// 三击屏幕唤出管理员面板
+document.addEventListener("click",()=>{
+  clickCount++;
+  setTimeout(()=>clickCount=0,800);
+  if(clickCount >=3){
+    document.getElementById("adminWrap").style.display = "block";
+  }
+});
+
+window.onload = async function(){
+  await loadImages();
+  renderWaterfall();
+};
+
+function loginAdmin(){
+  let val = document.getElementById("pwdInp").value.trim();
+  if(val === PASS){
+    adminMode = true;
+    document.getElementById("cfgBox").style.display = "block";
+    document.getElementById("uploadBox").style.display = "block";
+    document.getElementById("uName").value = cfg.username||"";
+    document.getElementById("uRepo").value = cfg.repo||"";
+    document.getElementById("uGist").value = cfg.gistid||"";
+    document.getElementById("uToken").value = cfg.token||"";
+    alert("管理员已解锁，可以上传/删除");
+  }else{
+    alert("密码错误");
+  }
+}
+
+function saveCfg(){
+  cfg.username = document.getElementById("uName").value.trim();
+  cfg.repo = document.getElementById("uRepo").value.trim();
+  cfg.gistid = document.getElementById("uGist").value.trim();
+  cfg.token = document.getElementById("uToken").value.trim();
+  localStorage.setItem("myAlbumCfg",JSON.stringify(cfg));
+  alert("配置已本地保存，安全不泄露");
+  loadImages();
+}
+
+async function loadImages(){
+  if(!cfg.gistid)return;
+  try{
+    let res = await fetch("https://api.github.com/gists/"+cfg.gistid);
+    let json = await res.json();
+    imgArr = JSON.parse(json.files["photos.json"].content || "[]");
+  }catch(e){
+    console.log("读取图库失败",e);
+  }
+}
+
+// 纯白底瀑布流渲染
+function renderWaterfall(){
+  let html = "";
+  imgArr.forEach((item,idx)=>{
+    html += `
+    <div class="img-item">
+      < img src="${item.url}" loading="lazy">
+      ${adminMode ? "<div style='text-align:center;margin-top:8px'><button onclick='delImg("+idx+")'>删除</button></div>" : ""}
+    </div>
+    `;
+  });
+  document.getElementById("waterfall").innerHTML = html;
+}
+
+async function upImg(){
+  if(!cfg.username||!cfg.repo||!cfg.token||!cfg.gistid){
+    return alert("请先填写并保存配置");
+  }
+  let files = document.getElementById("fileInp").files;
+  if(files.length<1)return alert("请选择图片");
+  if(imgArr.length + files.length > MAX_NUM){
+    return alert("已达到80张上限");
+  }
+
+  for(let file of files){
+    let base64 = await file2base64(file);
+    let name = Date.now()+"_"+file.name;
+    let content = base64.split(",")[1];
+
+    await fetch(`https://api.github.com/repos/${cfg.username}/${cfg.repo}/contents/${name}`,{
+      method:"PUT",
+      headers:{Authorization:"token "+cfg.token},
+      body:JSON.stringify({message:"upload",content})
+    });
+
+    let cdnUrl = `https://cdn.jsdelivr.net/gh/${cfg.username}/${cfg.repo}/${name}`;
+    imgArr.push({name,url:cdnUrl});
+  }
+  await updateGist();
+  renderWaterfall();
+  alert("上传完成");
+}
+
+async function delImg(idx){
+  if(!confirm("确定删除？"))return;
+  let one = imgArr[idx];
+  let res = await fetch(`https://api.github.com/repos/${cfg.username}/${cfg.repo}/contents/${one.name}`,{
+    headers:{Authorization:"token "+cfg.token}
+  });
+  let data = await res.json();
+
+  await fetch(`https://api.github.com/repos/${cfg.username}/${cfg.repo}/contents/${one.name}`,{
+    method:"DELETE",
+    headers:{Authorization:"token "+cfg.token},
+    body:JSON.stringify({message:"del",sha:data.sha})
+  });
+
+  imgArr.splice(idx,1);
+  await updateGist();
+  renderWaterfall();
+}
+
+async function updateGist(){
+  await fetch("https://api.github.com/gists/"+cfg.gistid,{
+    method:"PATCH",
+    headers:{Authorization:"token "+cfg.token},
+    body:JSON.stringify({files:{"photos.json":{content:JSON.stringify(imgArr)}}})
+  });
+}
+
+function file2base64(file){
+  return new Promise(res=>{
+    let r = new FileReader();
+    r.onload=e=>res(e.target.result);
+    r.readAsDataURL(file);
+  });
+}
+</script>
+</body>
+</html>
