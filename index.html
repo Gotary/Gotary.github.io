@@ -1,0 +1,182 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>相册</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#fff;}
+.waterfall{
+  column-count:3;
+  column-gap:24px;
+  padding:15px;
+  max-width:1300px;
+  margin:0 auto;
+}
+@media(max-width:900px){.waterfall{column-count:2;}}
+@media(max-width:500px){.waterfall{column-count:1;}}
+.item{
+  break-inside:avoid;
+  margin-bottom:24px;
+  padding:12px;
+  background:#fff;
+}
+.item img{
+  width:100%;
+  display:block;
+}
+/* 管理默认隐藏 */
+.admin{
+  display:none;
+  padding:20px;
+  background:#f8f8f8;
+}
+input{
+  display:block;
+  margin:10px auto;
+  padding:10px;
+  width:90%;
+  max-width:400px;
+  border:1px solid #ddd;
+}
+button{
+  padding:10px 22px;
+  border:none;
+  background:#222;
+  color:#fff;
+  cursor:pointer;
+  display:block;
+  margin:10px auto;
+}
+</style>
+</head>
+<body>
+
+<div class="waterfall" id="gallery"></div>
+
+<div class="admin" id="adminBox">
+  <input type="password" id="pwd" placeholder="管理员密码 123686">
+  <button onclick="login()">登录管理</button>
+
+  <div id="cfg" style="display:none;">
+    <input id="un" placeholder="用户名 Gotary">
+    <input id="repo" placeholder="仓库 photo-album">
+    <input id="gist" placeholder="GistID">
+    <input id="token" placeholder="你的Token">
+    <button onclick="saveSet()">保存配置</button>
+  </div>
+
+  <div id="upArea" style="display:none;">
+    <input type="file" id="file" accept="image/*">
+    <button onclick="uploadSingle()">上传图片</button>
+    <p style="text-align:center;color:#666">最多80张，分批慢慢传</p >
+  </div>
+</div>
+
+<script>
+const PWD = "123686";
+const MAX = 80;
+let list = [];
+let cfg = JSON.parse(localStorage.getItem("albumSet")||"{}");
+
+// 三击呼出管理
+let t = 0;
+document.body.addEventListener("click",()=>{
+  t++;
+  setTimeout(()=>t=0,700);
+  if(t>=3) document.getElementById("adminBox").style.display="block";
+});
+
+// 页面加载必读Gist，保证刷新不空白
+window.onload = async ()=>{
+  await getGistData();
+  render();
+};
+
+async function getGistData(){
+  if(!cfg.gist) return;
+  try{
+    let res = await fetch("https://api.github.com/gists/"+cfg.gist);
+    let js = await res.json();
+    list = JSON.parse(js.files["photos.json"].content || "[]");
+  }catch(e){
+    list = [];
+  }
+}
+
+function login(){
+  if(document.getElementById("pwd").value.trim() === PWD){
+    document.getElementById("cfg").style.display="block";
+    document.getElementById("upArea").style.display="block";
+    document.getElementById("un").value=cfg.un||"";
+    document.getElementById("repo").value=cfg.repo||"";
+    document.getElementById("gist").value=cfg.gist||"";
+    document.getElementById("token").value=cfg.token||"";
+    alert("已解锁管理");
+  }
+}
+
+function saveSet(){
+  cfg.un = document.getElementById("un").value.trim();
+  cfg.repo = document.getElementById("repo").value.trim();
+  cfg.gist = document.getElementById("gist").value.trim();
+  cfg.token = document.getElementById("token").value.trim();
+  localStorage.setItem("albumSet",JSON.stringify(cfg));
+  alert("配置已保存，永久本地存放");
+  getGistData();render();
+}
+
+// 稳传：单张上传，不炸网络、不被重置
+async function uploadSingle(){
+  let file = document.getElementById("file").files[0];
+  if(!file)return alert("选一张图");
+  if(list.length >= MAX)return alert("已到80张上限");
+
+  let name = Date.now()+"_"+file.name;
+  let b64 = await fileToBase64(file);
+
+  // 上传到仓库
+  await fetch(`https://api.github.com/repos/${cfg.un}/${cfg.repo}/contents/${name}`,{
+    method:"PUT",
+    headers:{Authorization:"token "+cfg.token},
+    body:JSON.stringify({message:"add",content:b64.split(",")[1]})
+  });
+
+  let url = `https://cdn.jsdelivr.net/gh/${cfg.un}/${cfg.repo}/${name}`;
+  list.push({url});
+
+  // 强制写入Gist，持久化，刷新绝不丢
+  await saveGist();
+  render();
+  alert("上传成功，已经永久保存！");
+}
+
+async function saveGist(){
+  await fetch("https://api.github.com/gists/"+cfg.gist,{
+    method:"PATCH",
+    headers:{Authorization:"token "+cfg.token},
+    body:JSON.stringify({
+      files:{"photos.json":{content:JSON.stringify(list)}}
+    })
+  });
+}
+
+function render(){
+  let html = "";
+  list.forEach(item=>{
+    html += `<div class="item">< img src="${item.url}" loading="lazy"></div>`;
+  });
+  document.getElementById("gallery").innerHTML = html;
+}
+
+function fileToBase64(file){
+  return new Promise(res=>{
+    let r=new FileReader();
+    r.onload=e=>res(e.target.result);
+    r.readAsDataURL(file);
+  });
+}
+</script>
+</body>
+</html>
